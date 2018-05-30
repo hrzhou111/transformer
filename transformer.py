@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Created on Sun Mar 25 14:24:43 2018
+Created on Sun Mar 25 25:24:43 2018
 
 @author: zhr
 """
@@ -52,11 +52,12 @@ class Transformer:
     lambda_Li=0.085
     plottype =0
     precision = 1  #工艺加工精度，单位um
-    def  __init__(self,L1,L2,L1wi,L1si,L1h,lambda_Li,amp,rsquire,r=50,precision=1):
+    def  __init__(self,text,L1,L2,L1wi,L1si,L1h,lambda_Li,amp,rsquire,r=50,precision=1):
 
         """
         L1,L2 等效电感，二端口网络的等效电感
         """
+        self.text = str(text)
         self.L1wi = L1wi
         self.L1si = L1si
         self.precision = precision
@@ -92,16 +93,18 @@ class Transformer:
         if self.Ni-Ni2>0.8:
             Ni = int(Ni)+1
         self.Ni = Ni
-        self.L2w = min(2*self.d,self.Ni*(self.L1wi+self.L1si))
+        self.L2w = min(2*self.d,self.Ni*(self.L1wi+self.L1si))+5
         self.d = (self.L2-0.0003*self.L2w)/self.u0/1.25
+        self.slite = 25
         if self.caluncertain()['L1']-self.L1*self.plottype<-0.1*self.L1*self.plottype:
             self.Ni = self.Ni+1
-            self.L2w = max(2*self.d,self.Ni*(self.L1wi+self.L1si))
+            self.L2w = max(2*self.d,self.Ni*(self.L1wi+self.L1si))-1
             self.d = (self.L2-0.0003*self.L2w)/self.u0/1.25
             
 
         self.M = self.Ni*(Lh+Lsl/2)
         self.k = self.M/numpy.sqrt(self.L1*self.L2)
+        
 
 #        self.elec_width = elec_width
 
@@ -111,48 +114,60 @@ class Transformer:
         cell = gdspy.Cell(cellname,exclude_from_current=True)
 
         #绘制sspd端输入线圈 Ni圈，电感值L1，位于底层，layer1
-        if self.plottype==1:
-            startposition = (-(self.L2w+self.d/2+7.5)+self.d/2+self.L1wi/2,-self.L1wi/2)
-            direction = ['+y','-x','-y','+x']
-            turn = [1]*(self.Ni*4)
-            turn.pop(0)
-            length = []
-            for i in range(self.Ni):
-                length.extend([self.d+self.L1wi+(2*i-1)*(self.L1wi+self.L1si),  
-                           self.d+self.L1wi+2*i*(self.L1wi+self.L1si),
-                           self.d+self.L1wi+2*i*(self.L1wi+self.L1si),
-                           self.d+self.L1wi+(2*i+1)*(self.L1wi+self.L1si)])
-            length[0] = self.d+self.L1wi/2-self.L1si
-            layer={'layer':1,'datatype':1}
-            L1path = gdspy.L1Path(startposition,'+y',self.L1wi,length,turn,**layer)
-            L1path.fillet(self.L1si/10,points_per_2pi=30, max_points=30)
-#        cell.add(gdspy.Rectangle((-self.d/2,-self.d/2),(self.d/2,self.d/2),**layer))
-            cell.add(L1path)
-#        gdspy.LayoutViewer(cells=cell)
-        
-            layer = {'layer':2,'datatype':2}
-            cell.add(gdspy.Rectangle((-(self.L2w+self.d/2+7.5)+self.d/2,-self.L1wi/2),
-                                     (-(self.L2w+self.d/2+7.5)+self.d/2+self.L1wi,self.L1wi/2),**layer))
-        #标记
-
-        
-        #绘制顶层线圈layer3
-            l2direction = []
-            layer = {'layer':3,'datatype':3}
-            startposition = (self.d/2+self.L2w/2-(self.L2w+self.d/2+7.5),self.L1wi/2+self.precision+self.L2w/2)
-            turn = [1]*4
-            length = [self.d/2+self.L2w/2-2,self.d+self.L2w,
-                  self.d+self.L2w,self.d+self.L2w,self.d/2+self.L2w/2-2]
-            L2path = gdspy.L1Path(startposition,'+y',self.L2w,length,turn,**layer)
-#        L2path.fillet(self.L2w/4,points_per_2pi = 100,max_points = 30)
-            cell.add(L2path)
         if self.plottype==2:
+            #电阻层 layer = 3 电阻
+            layer = {'layer':3,'datatype':3}
+#            Nsquire = self.r/self.rsquire + 2  #2表示接触窗口，不算电阻，
+#            startposition = (slite/2+self.L2w+self.d/2-self.d/2-self.L1wi-self.Ni*(self.L1wi+self.L1si),
+#                             -self.d/2-self.L1wi/2-self.Ni*(self.L1wi+self.L1si))
+#            start = (-slite/2,0)
+#            width = self.L1wi+2*self.precision+self.L1wi*3
+            unitsquire = self.L1wi
+
+            if(self.r<self.rsquire):
+                lengthr = unitsquire+6*unitsquire
+                widthr = self.rsquire*unitsquire/self.r
+            else:
+                widthr = unitsquire
+                lengthr = unitsquire*self.r/self.rsquire+6*unitsquire
+                
+            startr = (0,lengthr/2)
+                
+            R = gdspy.Path(widthr,startr).segment(lengthr,'-y',**layer)  #电阻线
+            cell.add(R)
+            
+            
+              #washer 层
+            self.slite = (self.L1wi+self.L1si)*2+widthr+2*self.precision
+            slite = self.slite
+            d = self.d
+            self.d = self.d-1
+            
+            layer = {'layer':5,'datatype':5}
+            startposition = (self.d/2+self.L2w/2-(self.L2w+self.d/2+slite/2+0.5),self.L1wi/2+self.precision+5)
+            turn = [1]*4
+            turn.extend([-10/self.L2w,-1])
+            turn.extend([1]*4)
+            turn.append(-10/self.L2w)
+            
+            length = [self.d/2+self.L2w/2-(self.L1wi/2+self.precision+5),self.d+self.L2w,
+                  self.d+self.L2w,self.d+self.L2w,self.d/2+self.L2w/2-(self.L1wi/2+self.precision+5),
+                  self.L2w+slite+1,
+                  self.d/2+self.L2w/2-(self.L1wi/2+self.precision+5),self.d+self.L2w,
+                  self.d+self.L2w,self.d+self.L2w,self.d/2+self.L2w/2-(self.L1wi/2+self.precision+5),
+                  self.L2w*1.5+slite+1]
+            L2path = gdspy.L1Path(startposition,'+y',self.L2w,length,turn,**layer)
+            L2path = gdspy.fast_boolean(L2path,None,'or',**layer)    #washer
+            self.d = d
+#            L2path.translate(0.5,0.5)
+#           L2path.fillet(self.L2w/4,points_per_2pi = 100,max_points = 30)
             
             #input coil
-            startposition = (-(self.L2w+self.d/2+7.5)+self.d/2+self.L1wi/2,-self.L1wi/2)
+            startposition = (-(self.L2w+self.d/2+slite/2)+self.d/2+self.L1wi/2,-self.L1wi/2)
             turn = [1]*(self.Ni*4)
             turn.pop(0)
-            turn.append(1)
+            turn.append(-1)
+            turn.append(-1)
             length = []
             for i in range(self.Ni):
                 length.extend([self.d+self.L1wi+(2*i-1)*(self.L1wi+self.L1si),
@@ -161,83 +176,96 @@ class Transformer:
                            self.d+self.L1wi+(2*i+1)*(self.L1wi+self.L1si)])
             length[0] = self.d/2+self.L1wi
             length.append(self.d+self.L1wi*1.5+(2*self.Ni-1)*(self.L1wi+self.L1si))
+            length.append(self.d+self.L1wi*1.5+(2*self.Ni-1)*(self.L1wi+self.L1si))
             layer={'layer':1,'datatype':1} 
             L1path = gdspy.L1Path(startposition,'+y',self.L1wi,length,turn,**layer)
 #            L1path.fillet(self.L1si/10,points_per_2pi=30, max_points=30)
 #            cell.add(L1path)
             L11 = L1path.polygons
             L1_2 = gdspy.PolygonSet(L11,**layer).rotate(numpy.pi,(0,0))
-            cell.add(L1_2)
-            
-            #电阻层 layer = 3 电阻
-            layer = {'layer':3,'datatype':3}
-#            Nsquire = self.r/self.rsquire + 2  #2表示接触窗口，不算电阻，
-#            startposition = (7.5+self.L2w+self.d/2-self.d/2-self.L1wi-self.Ni*(self.L1wi+self.L1si),
-#                             -self.d/2-self.L1wi/2-self.Ni*(self.L1wi+self.L1si))
-            start = (-7.5,0)
-            width = self.L1wi+2*self.precision+self.L1wi*3
-            R = gdspy.Path(width,start).segment(15,'+x',**layer)  #电阻线
-            cell.add(R)
+#            cell.add(L1_2)
+    
             
             
             
-            #washer 层
-            layer = {'layer':5,'datatype':5}
-            startposition = (self.d/2+self.L2w/2-(self.L2w+self.d/2+7.5),self.L1wi/2+self.precision+5)
-            turn = [1]*4
-            turn.extend([-10/self.L2w,-1])
-            turn.extend([1]*4)
-            turn.append(-10/self.L2w)
             
-            length = [self.d/2+self.L2w/2-(self.L1wi/2+self.precision+5),self.d+self.L2w,
-                  self.d+self.L2w,self.d+self.L2w,self.d/2+self.L2w/2-(self.L1wi/2+self.precision+5),
-                  self.L2w+15,
-                  self.d/2+self.L2w/2-(self.L1wi/2+self.precision+5),self.d+self.L2w,
-                  self.d+self.L2w,self.d+self.L2w,self.d/2+self.L2w/2-(self.L1wi/2+self.precision+5),
-                  self.L2w*1.5+15]
-            L2path = gdspy.L1Path(startposition,'+y',self.L2w,length,turn,**layer)
-            L2path = gdspy.fast_boolean(L2path,None,'or',**layer)    #washer
-#           L2path.fillet(self.L2w/4,points_per_2pi = 100,max_points = 30)
+            
+            #washer 层和电阻层并联
+
+#            cell.add(link_R_w2)
+#            L2path.translate(0.5,0.5)
+            
+         #电阻和wsher连接层
+            layer = {'layer':4,'datatype':4}
+            mid_r_w = gdspy.fast_boolean(R,L2path,'and',**layer)
+            temp = []
+            layer = {'layer':4,'datatype':4}
+            for j in mid_r_w.polygons:
+                temp.append(self.amplifier(self.get_center(j),j,0.8))
+            cell.add(gdspy.PolygonSet(temp,**layer))
+            temp = []
+            layer = {'layer':2,'datatype':2}
+            startNb = (startr[0]-widthr/2-0.5,unitsquire*1.5)
+            Nb_link = gdspy.Path(2*unitsquire,startNb)
+            Nb_link.segment(widthr+1,'+x',**layer)
+#            Nb_link = gdspy.Rectangle((-widthr/2-0.5,0.5*unitsquire),(widthr/2+0.5,2.5*unitsquire),**layer)
+            cell.add(Nb_link)
+            Nb_link2 = self.symetry('x',*Nb_link.polygons)
+            cell.add(gdspy.PolygonSet([Nb_link2],**layer))
+            layer = {'layer':1,'datatype':1}
+            Nb_cover = gdspy.PolygonSet([self.amplifier(self.get_center(*Nb_link.polygons),*Nb_link.polygons,1+0.5/self.L1wi)],**layer)
+            Nb_cover2 = self.symetry('x',*Nb_cover.polygons)
+            Nb_cover2 = gdspy.PolygonSet([Nb_cover2],**layer)
+            cell.add(Nb_cover)
+            cell.add(Nb_cover2)
+#            
+                
+
+            
 
             #input线圈washer层连接线
-            washer_mid = gdspy.Rectangle((-(self.L2w+self.d/2+7.5)+self.d/2,-self.L1wi/2),
-                                     ((self.L2w+self.d/2+7.5)-self.d/2,self.L1wi/2),**layer)
-            cell.add(washer_mid)  
+            wi = self.L1wi
+            self.L1wi = self.L1wi+2
+            layer = {'layer':5,'datatype':5}
+            washer_mid = gdspy.Rectangle((-(self.L2w+self.d/2+slite/2+1)+self.d/2,-self.L1wi/2),
+                                     ((self.L2w+self.d/2+slite/2+1)-self.d/2,self.L1wi/2),**layer)  
             washer_mid = gdspy.Polygon(washer_mid.points,**layer)
-            
-            L2_in = gdspy.Path(self.L1wi,
-                               (0,self.L1wi/2+self.precision+5)).segment(375-(self.L1wi/2+self.precision+5),'+y',**layer)
+            cell.add(washer_mid)
+            self.L1wi = wi
+            L2_in = gdspy.Path(4*self.L1wi,
+                               (0,self.L1wi/2+self.precision+5)).segment(150-(self.L1wi/2+self.precision+5)+1.5*self.L1wi,'+y',**layer)
             L2_out = L2_in.polygons
             L2_out = gdspy.PolygonSet(L2_out,**layer).rotate(numpy.pi)
             L2path = gdspy.fast_boolean(L2path,L2_in,'or',**layer)    #washer
             L2path = gdspy.fast_boolean(L2path,L2_out,'or',**layer)    #washer
             cell.add(L2path)
+            self.L1wi = wi
 
             
             
             #引出电极  总大小       5mmX1.5mm
             layer = {'layer':1,'datatype':1}
-            cell.add(gdspy.Rectangle((1500,125),(2500,625),**layer))
-            cell.add(gdspy.Rectangle((1500,-125),(2500,-625),**layer))
-            cell.add(gdspy.Rectangle((-1500,125),(-2500,625),**layer))
-            cell.add(gdspy.Rectangle((-1500,-125),(-2500,-625),**layer))
-            L2_in_elec = gdspy.Path(self.L1wi,
-                               (-self.L1wi/2,375-self.L1wi/2)).segment(1500+self.L1wi,'+x',20*self.L1wi,**layer)
+            boundary = 2*(self.L1si+self.L1wi)*self.Ni+self.d+slite/2+100
+            cell.add(gdspy.Rectangle((boundary,50),(boundary+1000,550),**layer))
+            cell.add(gdspy.Rectangle((boundary,-50),(boundary+1000,-550),**layer))
+            cell.add(gdspy.Rectangle((-boundary,50),(-boundary-1000,550),**layer))
+            cell.add(gdspy.Rectangle((-boundary,-50),(-boundary-1000,-550),**layer))
+            L2_in_elec = gdspy.Path(3*self.L1wi,
+                               (self.L1wi*2.5,150-self.L1wi/2)).segment(5*self.L1wi,'-x',**layer).segment(boundary,'-x',40*self.L1wi,**layer)
             cell.add(L2_in_elec)
             L2_out_elec = gdspy.PolygonSet(L2_in_elec.polygons,**layer).rotate(numpy.pi)
             cell.add(L2_out_elec)
-            length = [375-self.d/2-self.L1wi/2-self.Ni*(self.L1wi+self.L1si),
-                      1500-7.5-self.L2w+self.L1wi/2+self.Ni*(self.L1wi+self.L1si)]
-            start = (-1*(7.5+self.L2w+self.d/2-self.d/2-self.L1wi-self.Ni*(self.L1wi+self.L1si))-self.L1wi/2,
-                             self.d/2+self.L1wi/2+self.Ni*(self.L1wi+self.L1si))
-            L1_in_elec = gdspy.Path(self.L1wi,start).segment(length[0],'+y',self.L1wi,**layer).arc(self.L1wi*2,0,numpy.pi/2,number_of_points = 20,final_width = 2*self.L1wi,**layer).segment(length[1],'-x',20*self.L1wi)
+            
+            start = (-1*(slite/2+self.d+2*self.Ni*(self.L1wi+self.L1si))+self.L1wi+self.L1si,-self.d/2-(self.L1si+self.L1wi)*self.Ni-length[-1]+self.L1wi+self.L1si*0.5)
+            lengthin = boundary-80
+            L1_in_elec = gdspy.Path(self.L1wi,start).segment(lengthin,'-x',20*self.L1wi)
  
             L1path = gdspy.fast_boolean(L1path,L1_in_elec,'or',**layer)
             cell.add(L1path)
-#            r_end = ((7.5+self.L2w+self.d/2)-(self.d/2+self.Ni*(self.L1si+self.L1wi)+self.L1wi/2)+(Nsquire-1)*self.L1wi,
+#            r_end = ((slite/2+self.L2w+self.d/2)-(self.d/2+self.Ni*(self.L1si+self.L1wi)+self.L1wi/2)+(Nsquire-1)*self.L1wi,
 #                     -self.d/2-self.Ni*(self.L1si+self.L1wi))
 #            length = [375-self.d/2-self.L1wi/2-self.Ni*(self.L1wi+self.L1si),
-#                     1500-(7.5+self.L2w+self.d/2)+(self.d/2+self.Ni*(self.L1wi+self.L1si)+self.L1wi/2)-((Nsquire-1)*self.L1wi)]
+#                     boundary-(slite/2+self.L2w+self.d/2)+(self.d/2+self.Ni*(self.L1wi+self.L1si)+self.L1wi/2)-((Nsquire-1)*self.L1wi)]
 #            L1_out_elec = gdspy.L1Path(r_end,'-y',self.L1wi,length,[1],**layer)
             L1_out_elec = gdspy.PolygonSet(L1_in_elec.polygons,**layer).rotate(numpy.pi)
             L1_2 = gdspy.fast_boolean(L1_2,L1_out_elec,'or',**layer)
@@ -246,10 +274,14 @@ class Transformer:
             
             #引线窗口
             #L1 washer ceng 连接
+            k = 0
+            dis = [1,3]
+
             for i in[2,4]:
                 layer = {'layer':i,'datatype':i}   #绝缘层
-                L1link= gdspy.Rectangle((-(self.L2w+7.5-self.L1wi/2)-self.L1wi/2*0.9**(5-i),-self.L1wi/2*0.9**(5-i)),
-                                     (-(self.L2w+7.5-self.L1wi/2)+self.L1wi/2*0.9**(5-i),self.L1wi/2*0.9**(5-i)),**layer)
+                L1link = gdspy.Rectangle((-(self.L2w+self.d/2+slite/2)+self.d/2+self.L1wi/2-((self.L1wi+2)/2)*(1-dis[k]/(self.L1wi+2)),-(self.L1wi+2)/2*(1-dis[k]/(self.L1wi+2))),
+                                         (-(self.L2w+self.d/2+slite/2)+self.d/2+self.L1wi/2+1+((self.L1wi+2)/2)*(1-dis[k]/(self.L1wi+2)),(self.L1wi+2)/2*(1-dis[k]/(self.L1wi+2))),**layer)
+                k = k+1
                 cell.add(L1link)
                 l2 = gdspy.Polygon(L1link.points,**layer)
                 l2.rotate(numpy.pi)
@@ -257,16 +289,18 @@ class Transformer:
             #washer层和电极接线，layer = 2 4
             for i in [2,4]:
                 layer = {'layer':i,'datatype':i}   #绝缘层
-                L2_in_link = gdspy.Rectangle((-self.L1wi/2*0.9**(5-i),375-self.L1wi/2-self.L1wi/2*0.9**(5-i)),
-                                             (self.L1wi/2*0.9**(5-i),375-self.L1wi/2+self.L1wi/2*0.9**(5-i)),
-                                             **layer)
-                cell.add(L2_in_link)               
-                L2_out_link = gdspy.Polygon(L2_in_link.points,**layer).rotate(numpy.pi)                
-                cell.add(L2_out_link)
+                link_washer_elec = gdspy.fast_boolean(L2path,L2_out_elec,'and',**layer)
+                link_washer = []
+                for j in link_washer_elec.polygons:
+                    center  = self.get_center(j)
+                    k = self.amplifier(center,j,0.85**(5-i))
+                    link_washer.append(k)
+                cell.add(gdspy.PolygonSet(link_washer,**layer))
+                cell.add(gdspy.PolygonSet(link_washer,**layer).rotate(numpy.pi))
             #L2与R并联
-            layer = {'layer':4,'datatype':4}
-            L2_r_link = gdspy.fast_boolean(L2path,R,'and',**layer)
-            cell.add(L2_r_link)
+#            layer = {'layer':4,'datatype':4}
+#            L2_r_link = gdspy.fast_boolean(L2path,R,'and',**layer)
+#            cell.add(L2_r_link)
             #L1-2与R接口
             '''
             layer = {'layer':2,'datatype':2}
@@ -279,6 +313,10 @@ class Transformer:
             '''
         # mark
         
+        # text
+        layer = {'layer':1,'datatype':1}
+        cell.add(gdspy.Text(self.text,100,(-boundary-100,20),angle = -numpy.pi/2,**layer))
+        
         lib = gdspy.GdsLibrary(name='lib')
         lib.add(cell,overwrite_duplicate=True)
         lib.write_gds('outfile.gds',unit = 1e-06,precision=1e-09)
@@ -287,14 +325,44 @@ class Transformer:
         """
         计算实际电感值
         """
-        L2 = (self.u0*1.25*self.d+0.0003*(self.L2w+7.5))/self.plottype
+        L2 = (self.u0*1.25*self.d+0.0003*(self.L2w+self.slite/2))/self.plottype
         l = 4*self.Ni*(self.d+(self.Ni+1)*self.L1si+self.Ni*self.L1wi)
         L1 = self.plottype*(self.Ni**2*(self.u0*1.25*self.d+0.0003*self.L2w/3)+l*self.lstripe)
         M = self.Ni*(1.25*self.u0*self.d+0.0003*self.L2w/2)
         amp = M/L2
         return{'L1':L1,'L2':L2,'M':M,'amp':amp,'Ni':self.Ni}
-    def transformer_array():
-        return
+    def get_center(self,points):
+        x = 0
+        y=0
+        for point in points:
+           x = x+point[0]/len(points)
+           y = y+point[1]/len(points)
+        return (x,y)
+    def amplifier(self,center,polygons,amplifier):
+        '''
+        center :points like(x,y)
+        '''
+        polygon = []
+        for j in polygons:
+            polygon.append([(j[0]-center[0])*amplifier+center[0],(j[1]-center[1])*amplifier+center[1]])
+    
+        return numpy.array(polygon)
+    def symetry(self,symline,polygons):
+        '''
+        单个多边形的对称变换
+        支持x，y轴变换
+        '''
+        polygon = []
+        for j in polygons:
+            if symline =='x':
+                polygon.append([j[0],0-j[1]])
+            elif symline=='y':
+                polygon.append([0-j[0],j[1]])
+        return numpy.array(polygon)
+            
+            
+        
+        
     
     
 def transformer_array(dx,dy,m,n,cells):
@@ -305,7 +373,7 @@ def transformer_array(dx,dy,m,n,cells):
     arrayname = 'array{}X{}'.format(m,n)
     refcell = gdspy.Cell(arrayname,exclude_from_current=True)
     lib = gdspy.GdsLibrary(name='lib')
-#    lib.add(cells,overwrite_duplicate=True)   #2017102514：25
+#    lib.add(cells,overwrite_duplicate=True)   #2017102525：25
     j = m-1
     k = n
     for i in cells:
@@ -315,8 +383,12 @@ def transformer_array(dx,dy,m,n,cells):
             k = n
             j = j-1
     refcell.flatten()      #
-    lib.add(refcell,overwrite_duplicate=True)
+    refcell1 = gdspy.Cell(arrayname,exclude_from_current=True)
+    refcell1.add(gdspy.CellReference(refcell).translate(-1*dx*(n-1)/2,-1*dy*(m-1)/2))
+    refcell1.flatten()
+    lib.add(refcell1,overwrite_duplicate=True)
     return lib
+ 
 
 def get_param_from_xlsx(filename):
     """
@@ -351,8 +423,8 @@ def plot(filename):
     return
 
 if __name__ == '__main__':
-    c1 = Transformer(1,0.012,3,3,0.2,0.09,10,2,50)
-#                  ( L1,L2,L1wi,L1si,L1h,lambda_Li,amp,precision=1):
+    c1 = Transformer('1', 1, 0.012, 3, 3, 0.1, 0.09, 10, 2, 0.3, 3)
+#  text,L1,L2,L1wi,L1si,L1h,lambda_Li,amp,rsquire,r=50,precision=1)
     c1.plottransformer()
     print(c1.caluncertain())
 
